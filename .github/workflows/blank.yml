@@ -1,0 +1,78 @@
+name: Build ChaosClient 1.21.11
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'src/**'
+      - 'build.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        java-version: ['21']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java-version }}
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/wrapper-validation-action@v2
+
+      - name: Build with Gradle
+        uses: gradle/gradle-build-action@v3
+        with:
+          gradle-version: '8.14.3'
+          arguments: clean build --no-daemon --stacktrace -x test
+
+      - name: List build artifacts
+        if: always()
+        run: |
+          echo "=== Build Output ==="
+          ls -lh build/libs/ || echo "No artifacts found"
+
+      - name: Upload JAR artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaosclient-${{ github.run_number }}
+          path: build/libs/chaosclient-*.jar
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/chaosclient-*.jar
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Status
+        if: always()
+        run: |
+          if [ -f build/libs/chaosclient-*.jar ]; then
+            echo "✓ ChaosClient compiled successfully"
+            ls -lh build/libs/chaosclient-*.jar
+          else
+            echo "✗ Build failed"
+            exit 1
+          fi
